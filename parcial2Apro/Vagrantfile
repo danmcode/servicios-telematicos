@@ -1,0 +1,106 @@
+$firewallMachine = <<-'SCRIPT'
+sudo -i
+yum install vim -y
+yum install vsftpd -y
+yum install sendmail sendmail-cf -y
+yum install dovecot -y
+yum install bind-utils bind-libs bind-* -y
+yum install httpd -y
+service firewalld start
+service NetworkManager stop
+chkconfig NetworkManager off
+firewall-cmd --set-default-zone=dmz
+firewall-cmd --zone=dmz --add-interface=eth1 --permanent
+firewall-cmd --zone=dmz --add-service=https --permanent
+firewall-cmd --zone=dmz --add-service=ftp --permanent
+firewall-cmd --zone=dmz --add-service=dns --permanent
+firewall-cmd --zone=internal --add-interface=eth2 --permanent
+firewall-cmd --permanent --zone=dmz --add-masquerade
+firewall-cmd --permanent --zone=internal --add-masquerade
+firewall-cmd --permanent --zone="dmz" --add-forward-port=port=443:proto=tcp:toport=443:toaddr=192.168.50.3
+firewall-cmd --permanent --zone="dmz" --add-forward-port=port=22:proto=tcp:toport=22:toaddr=192.168.50.2
+firewall-cmd --permanent --zone="dmz" --add-forward-port=port=21:proto=tcp:toport=21:toaddr=192.168.50.2
+firewall-cmd --permanent --zone="dmz" --add-forward-port=port=20:proto=tcp:toport=20:toaddr=192.168.50.2
+firewall-cmd --permanent --zone="dmz" --add-forward-port=port=25:proto=tcp:toport=25:toaddr=192.168.50.2
+firewall-cmd --permanent --zone="dmz" --add-forward-port=port=110:proto=tcp:toport=110:toaddr=192.168.50.2
+firewall-cmd --permanent --zone="dmz" --add-forward-port=port=53:proto=udp:toport=53:toaddr=192.168.50.3
+firewall-cmd --reload
+service firewalld start
+SCRIPT
+$server2Machine = <<-'SCRIPT'
+sudo -i
+yum install vim -y
+yum install vsftpd -y
+yum install sendmail sendmail-cf -y
+yum install dovecot -y
+useradd daniel
+
+cp /vagrant/server2Machine/sendmail.mc /etc/mail/sendmail.mc
+m4 /etc/mail/sendmail.mc > sendmail.cf
+cp /vagrant/server2Machine/local-host-names /etc/mail/local-host-names
+cp /vagrant/server2Machine/access /etc/mail/access
+cd /etc/mail/
+makemap hash /etc/mail/access.db < /etc/mail/access
+hostnamectl set-hostname servidor2.dgteam.com
+cp  /vagrant/server2Machine/dovecot.conf /etc/dovecot/dovecot.conf
+cp  /vagrant/server2Machine/10-mail.conf /etc/dovecot/conf.d/10-mail.conf
+cp  /vagrant/server2Machine/10-auth.conf /etc/dovecot/conf.d/10-auth.conf
+cp  /vagrant/server2Machine/10-ssl.conf /etc/dovecot/conf.d/10-ssl.conf
+cp  /vagrant/server2Machine/vsftpd.conf /etc/vsftpd/vsftpd.conf
+cp  /vagrant/server2Machine/ca.crt /etc/pki/tls/certs/
+cp  /vagrant/server2Machine/ca.csr /etc/pki/tls/private/
+cp  /vagrant/server2Machine/ca.key /etc/pki/tls/private/
+chmod 600 /etc/pki/tls/certs/ca.crt
+chmod 600 /etc/pki/tls/private/ca.key
+chmod 600 /etc/pki/tls/private/ca.csr
+service vsftpd start
+service sendmail start
+service dovecot start
+SCRIPT
+$server3Machine = <<-'SCRIPT'
+sudo -i
+yum install vim -y
+yum install bind-utils bind-libs bind-* -y
+yum install httpd -y
+yum install mod_ssl -y
+sudo cd /var/www/html/
+sudo touch index.html
+sudo cp /vagrant/server3Machine/index.html /var/www/html/index.html
+sudo chmod 755 index.html
+cp /vagrant/server3Machine/named.conf /etc/named.conf
+cp /vagrant/server3Machine/dgteam.com.fwd /var/named/dgteam.com.fwd
+cp /vagrant/server3Machine/dgteam.com.rev /var/named/dgteam.com.rev
+chmod 755 /var/named/dgteam.com.fwd
+chmod 755 /var/named/dgteam.com.rev
+cp /vagrant/server3Machine/httpd.conf /etc/httpd/conf/httpd.conf
+cp /vagrant/server3Machine/ssl.conf /etc/httpd/conf.d/ssl.conf
+cp  /vagrant/server3Machine/ca.crt /etc/pki/tls/certs/
+cp  /vagrant/server3Machine/ca.csr /etc/pki/tls/private/
+cp  /vagrant/server3Machine/ca.key /etc/pki/tls/private/
+chmod 600 /etc/pki/tls/certs/ca.crt
+chmod 600 /etc/pki/tls/private/ca.key
+chmod 600 /etc/pki/tls/private/ca.csr
+service named start
+service httpd start
+SCRIPT
+Vagrant.configure("2") do |config|
+config.vm.define :servidor2 do |servidor2|
+servidor2.vm.box = "bento/centos-7.9"
+servidor2.vm.network :private_network, ip: "192.168.50.2"
+servidor2.vm.hostname = "servidor2"
+servidor2.vm.provision "shell", inline: $server2Machine
+end
+config.vm.define :servidor3 do |servidor3|
+servidor3.vm.box = "bento/centos-7.9"
+servidor3.vm.network :private_network, ip: "192.168.50.3"
+servidor3.vm.hostname = "servidor3"
+servidor3.vm.provision "shell", inline: $server3Machine
+end
+config.vm.define :firewall do |firewall|
+firewall.vm.box = "bento/centos-7.9"
+firewall.vm.network :public_network, ip: "192.168.1.150"
+firewall.vm.network :private_network, ip: "192.168.50.4"
+firewall.vm.hostname = "firewall"
+firewall.vm.provision "shell", inline: $firewallMachine
+end
+end
